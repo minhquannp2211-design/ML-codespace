@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phân Tích Chi Tiết: Hàm Phân Phối Chuẩn</title>
+    
+    <!-- Three.js & GSAP -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+    
+    <!-- Post-Processing (Bloom / Neon Effect) -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+
+    <!-- MathJax -->
+    <script>
+        window.MathJax = { tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$']] } };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    
+    <style>
+        :root { --primary: #61c6bd; --bg: #030708; --panel-width: clamp(300px, 36vw, 550px); }
+        body { margin: 0; overflow: hidden; background: var(--bg); color: #e2e8f0; font-family: 'Segoe UI', Tahoma, sans-serif; }
+        #webgl-container { position: absolute; top: 0; left: var(--panel-width); width: calc(100vw - var(--panel-width)); height: 100vh; z-index: 1; }
+        
+        /* Bảng Panel Nội dung giữ nguyên 100% */
+        #slide-panel {
+            position: absolute; top: 0; left: 0; width: var(--panel-width); height: 100vh;
+            background: rgba(3, 3, 10, 0.85); backdrop-filter: blur(20px);
+            border-right: 1px solid rgba(0, 255, 255, 0.15); z-index: 10;
+            display: flex; flex-direction: column; padding: 40px; box-sizing: border-box;
+            box-shadow: 15px 0 50px rgba(0,0,0,0.8);
+            transition: transform .35s ease;
+        }
+        body.panel-collapsed #slide-panel { transform: translateX(-100%); }
+        #webgl-container, #labels-container { transition: left .35s ease, width .35s ease; }
+        body.panel-collapsed #webgl-container, body.panel-collapsed #labels-container { left: 0; width: 100vw; }
+        #panel-toggle {
+            position: fixed; z-index: 20; top: 58px; left: calc(var(--panel-width) - 19px);
+            width: 38px; height: 48px; padding: 0; border: 1px solid rgba(97,198,189,.55);
+            border-radius: 0 10px 10px 0; background: rgba(7,20,22,.94); color: var(--primary);
+            font-size: 1.45rem; font-weight: 700; cursor: pointer; transition: left .35s ease, background .2s ease;
+        }
+        #panel-toggle:hover { background: rgba(26,72,70,.96); }
+        body.panel-collapsed #panel-toggle { left: 0; border-radius: 0 10px 10px 0; }
+        
+        #slide-content-wrapper { 
+            flex-grow: 1; overflow-y: auto; padding-right: 15px; 
+            mask-image: linear-gradient(to bottom, black 95%, transparent 100%);
+            -webkit-mask-image: linear-gradient(to bottom, black 95%, transparent 100%);
+        }
+        
+        #slide-content-wrapper::-webkit-scrollbar { width: 6px; }
+        #slide-content-wrapper::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); border-radius: 10px; }
+        #slide-content-wrapper::-webkit-scrollbar-thumb { background: rgba(0, 255, 255, 0.3); border-radius: 10px; }
+        #slide-content-wrapper::-webkit-scrollbar-thumb:hover { background: var(--primary); }
+
+        h2 { font-size: 1.6rem; color: var(--primary); margin-top: 0; border-bottom: 1px solid rgba(0,255,255,0.2); padding-bottom: 15px; line-height: 1.4;}
+        .text-content { font-size: 1.05rem; line-height: 1.7; color: #cbd5e1; text-align: justify; }
+
+        .math-box {
+            background: rgba(0, 255, 255, 0.05); border-left: 3px solid var(--primary);
+            padding: 10px 15px; margin: 15px 0; border-radius: 0 8px 8px 0;
+            overflow-x: auto;
+        }
+        
+        .controls { 
+            display: flex; justify-content: space-between; align-items: center; 
+            margin-top: 20px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.1); 
+        }
+        .btn {
+            background: rgba(0,255,255,0.05); border: 1px solid rgba(0,255,255,0.3); color: var(--primary);
+            padding: 12px 25px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 1rem; transition: 0.3s;
+        }
+        .btn:hover:not(:disabled) { background: var(--primary); color: #000; box-shadow: 0 0 20px rgba(0,255,255,0.4); }
+        .btn:disabled { opacity: 0.2; cursor: not-allowed; color: #888; border-color: #444; }
+        #indicator { font-weight: bold; color: #fff; letter-spacing: 2px; }
+
+        /* Lớp chú thích Text 3D (Overlay) */
+        #labels-container {
+            position: absolute; top: 0; left: var(--panel-width); width: calc(100vw - var(--panel-width)); height: 100vh;
+            pointer-events: none; z-index: 5;
+        }
+        .gl-label {
+            position: absolute; color: #fff; font-weight: 500;
+            text-shadow: 0 1px 8px rgba(0,0,0,0.9);
+            opacity: 0; transition: opacity 0.6s ease;
+            transform: translate(-50%, -50%); text-align: center;
+        }
+        .gl-label.active { opacity: 1; }
+        .axis-tag { position: absolute; z-index: 6; opacity: 0; transform: translate(-50%, -110%); color: #e4efed; font-weight: 700; font-size: 1rem; text-shadow: 0 0 8px #000, 0 0 10px currentColor; transition: opacity .25s ease; pointer-events: none; }
+        .axis-tag.active { opacity: 1; }
+        #tag-ox { color: #6db9ad; } #tag-oy { color: #d8bd7c; } #tag-oz { color: #b9a8e8; }
+        .gl-label.green { color: #76c995; text-shadow: 0 1px 8px rgba(0,0,0,0.85); }
+        
+        .title-label { font-size: 1.5rem; letter-spacing: 1px; }
+        .sub-label { font-size: 0.9rem; color: #a0aec0; }
+        .point-label { font-size: 1.1rem; }
+        .formula-label:empty { display: none; }
+        .formula-label { top: 29%; left: 82%; width: min(34vw, 500px); padding: 0; box-sizing: border-box; border: 0; border-radius: 0; background: transparent; backdrop-filter: none; font-family: "Cambria Math", "STIX Two Math", "Latin Modern Math", serif; text-shadow: 0 1px 6px rgba(0,0,0,.85); }
+        .formula-label .formula { color: #e4efed; font-size: 1.3rem; margin-bottom: 10px; }
+        .formula-label .area-note { color: #a8bfbc; font-size: .98rem; }
+        #lbl-area { top: 36%; left: 82%; width: min(34vw, 440px); white-space: nowrap; }
+        #lbl-theta { top: 44%; left: 82%; white-space: nowrap; }
+        #lbl-polar-note { top: 52%; left: 82%; width: min(32vw, 400px); line-height: 1.5; }
+        @media (max-width: 900px) {
+            :root { --panel-width: clamp(240px, 42vw, 350px); }
+            #slide-panel { padding: 20px; }
+            .text-content { font-size: .98rem; }
+            .formula-label { left: 74%; width: 24vw; font-size: .9rem; }
+            .formula-label .formula { font-size: 1rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="webgl-container"></div>
+    <button id="panel-toggle" type="button" aria-label="Cất bảng giải thích" aria-expanded="true" title="Cất bảng giải thích">←</button>
+    
+    <!-- LỚP CHÚ THÍCH TRỰC QUAN HÓA (LABELS) -->
+    <div id="labels-container">
+        <!-- Labels Slide 1, 2, 3 (Góc nhìn 1D) -->
+        <div class="gl-label group-1" style="top: 15%; left: 70%;">
+            <div class="title-label">Góc nhìn 1D</div>
+            <div class="sub-label">(Mật độ 1D)</div>
+        </div>
+        <div class="gl-label group-1 title-label" style="top: 75%; left: 70%;" id="lbl-xacsuat"></div>
+        <div class="gl-label group-1 formula-label" id="lbl-formula"></div>
+
+        <!-- Labels Slide 4, 5 (Góc nhìn 3D & Polar) -->
+        <div class="gl-label group-2" style="top: 12%; left: 70%;">
+            <div class="title-label">Góc nhìn 2D</div>
+            <div class="sub-label">(Tích phân đa chiều)</div>
+        </div>
+        <div class="gl-label group-2 point-label" id="lbl-2d-note" style="top: 25%; left: 78%; width: 300px;">Hai Gaussian: <b>f(x)</b>, <b>f(y)</b></div>
+        <div class="axis-tag" id="tag-ox">O<sub>x</sub></div>
+        <div class="axis-tag" id="tag-oy">O<sub>y</sub></div>
+        <div class="axis-tag" id="tag-oz">O<sub>z</sub></div>
+        
+        <div class="gl-label group-3 green title-label" id="lbl-area">Diện tích = 2πσ²</div>
+        <div class="gl-label group-3 point-label" id="lbl-theta">θ: 0 → 2π</div>
+        <div class="gl-label group-3 point-label" id="lbl-polar-note">
+            <span class="sub-label">Phép tích phân trong tọa độ cực dùng để tính thể tích dưới khối chuông.</span>
+        </div>
+    </div>
+
+    <!-- BẢNG ĐIỀU KHIỂN BÊN TRÁI -->
+    <div id="slide-panel">
+        <div id="slide-content-wrapper">
+            <h2 id="title">Loading...</h2>
+            <div class="text-content" id="desc"></div>
+        </div>
+        <div class="controls">
+            <button class="btn" id="btn-prev" onclick="changeSlide(-1)">&#8592; Trước</button>
+            <div id="indicator">1 / 6</div>
+            <button class="btn" id="btn-next" onclick="changeSlide(1)">Tiếp &#8594;</button>
+        </div>
+    </div>
+
+<script>
+    // --- NỘI DUNG GIỮ NGUYÊN 100% CỦA NGƯỜI DÙNG ---
+    const slides = [
+        {
+            title: "1. Hàm phân phối chuẩn & Đại lượng cốt lõi",
+            content: `Trong machine learning, hàm phân phối chuẩn $X \\sim \\mathcal{N}(\\mu,\\sigma^2)$ là hàm mô tả cách dữ liệu phân bố quanh giá trị trung tâm,
+            <div class="math-box">$$P(y^{(i)}) = \\frac{1}{\\sigma\\sqrt{2\\pi}} \\exp\\left\\{-\\frac{(y^{(i)} - \\mu)^2}{2\\sigma^2}\\right\\} = \\frac{1}{\\sigma\\sqrt{2\\pi}} e^{-u}$$ 
+            với $u = \\frac{(y^{(i)} - \\mu)^2}{2\\sigma^2}$</div>
+            Trong đó:
+            <ul>
+                <li>$\\mu$ là giá trị trung bình, đại diện cho giá trị mẫu được đề ra ($= \\mu^{(i)}$ nếu tuyến tính, $= \\mu$ tại mọi điểm nếu không phụ thuộc vào i) (nhắc lại, $y^{(i)} = \\phi^T X + e, \\phi^T X = \\mu$, $e$ là nhiễu).</li>
+                <li>$(y^{(i)} - \\mu)^2$ là bình phương độ lệch tại điểm $i$.</li>
+                <li>$\\sigma^2$ là phương sai, hay còn gọi là bình phương độ lệch chuẩn. $\\sigma^2 = \\frac{\\sum(y^{(i)}-\\mu)^2}{N}$ với $i$ từ 1 tới $N$: là tổng bình phương độ lệch chuẩn trên tập data $N$, tạo thành 1 giá trị gọi là phương sai.</li>
+            </ul>`
+        },
+        {
+            title: "2. Tỉ số độ lệch & Ép hàm mũ tự nhiên",
+            content: `Vậy, tỉ số $u = \\frac{(y^{(i)} - \\mu)^2}{2\\sigma^2}$ đo độ lệch đã bình phương và chuẩn hóa theo phương sai.<br><br>
+            Khi ép thành hàm mũ, giá trị độ lệch thấp ($u$ thấp) sẽ cho ra $e^{-u}$ lớn, do $e^{-u} = \\frac{1}{e^u}$.<br><br>
+            Vì $u \\ge 0$, ta có $0 < e^{-u} \\le 1$; khi $u \\to +\\infty$ thì $e^{-u} \\to 0$, còn $u=0$ thì $e^{-u}=1$.<br><br>
+            Đây là phần tạo hình chuông của mật độ chuẩn. Tuy nhiên, $e^{-u}$ riêng lẻ chưa phải mật độ xác suất chuẩn hóa: diện tích dưới đường cong còn phụ thuộc vào $\\sigma$.`
+        },
+        {
+            title: "3. Hệ số chuẩn hóa & Điều kiện hàm xác suất",
+            content: `(2) Hệ số $\\frac{1}{\\sigma\\sqrt{2\\pi}}$ mang ý nghĩa gì?<br>
+            Gọi $P_1(y)=e^{-u}$ là đường cong chưa chuẩn hóa. Nó không âm và có hình chuông, nhưng chưa phải mật độ xác suất vì diện tích dưới đường cong chưa bằng $1$.
+            <ul>
+                <li>Với $u=\\frac{(y-\\mu)^2}{2\\sigma^2}$, tích phân trên toàn trục là $\\int_{-\\infty}^{\\infty}P_1(y)\\,dy=\\sigma\\sqrt{2\\pi}$.</li>
+                <li>Nhân toàn bộ đường cong với $\\frac{1}{\\sigma\\sqrt{2\\pi}}$ sẽ chia diện tích cho đúng hệ số đó.</li>
+            </ul>
+            Kết quả là mật độ chuẩn hóa $P(y)=\\frac{1}{\\sigma\\sqrt{2\\pi}}e^{-u}$ và $\\int_{-\\infty}^{\\infty}P(y)\\,dy=1$. Lưu ý: mật độ có thể lớn hơn $1$; xác suất của một khoảng mới là diện tích dưới mật độ trên khoảng ấy.`
+        },
+        {
+            title: "4. Tích phân bất khả thi & Tuyệt kỹ Fubini",
+            content: `Hai phương trình Gaussian 1D có cùng dạng, chỉ khác biến:
+            <div class="math-box">$$f(x)=e^{-\\frac{x^2}{2\\sigma^2}}, \\qquad f(y)=e^{-\\frac{y^2}{2\\sigma^2}}$$
+            $$f(x)f(y)=e^{-\\frac{x^2+y^2}{2\\sigma^2}}=e^{-\\frac{r^2}{2\\sigma^2}}$$</div>
+            Trên hình, $f(x)$ và $f(y)$ nằm dọc theo hai trục vuông góc trên mặt phẳng đáy $Oxy$. Có thể hình dung chúng như hai profile đứng trên $Oxz$ và $Oyz$.`
+        },
+        {
+            title: "5. Tọa độ cực & Giải khối tròn xoay",
+            content: `Phân tích $x^2 + y^2 = r^2$ (Pytago) với $r$ = khoảng cách từ tâm đến $x,y$, như vậy bài toán đã có thể rẽ hướng sang tọa độ cực.<br><br>
+            Và khi tổng tích phân các khối hình hộp sẽ cho ra được 1 khối tròn xoay. Thay $r = \\sqrt{x^2+y^2}$, do $f(r) = e^{-r^2}$, không ảnh hưởng đến góc hướng lên nên có thể biểu diễn tích phân này chỉ bằng $r$ và $\\phi$ (theo tọa độ cực thông thường).
+            <div class="math-box">$$V = \\int_0^{2\\pi} \\int_0^\\infty e^{-r^2} r \\, dr d\\phi$$</div>
+            Thay $t = r^2 \\Rightarrow dt = 2rdr$.<br>
+            Nguyên hàm của $e^{-r^2}r$ là $-\\frac{1}{2}e^{-r^2}$. Thế cận từ $0$ đến $\\infty$:`
+        },
+        {
+            title: "6. Rút ra tích phân & Hoàn thiện phương trình",
+            content: `Do $V= I^2$ bắt nguồn từ hàm $f(y) = e^{-y^2}$, dựa theo hàm phân phối chuẩn bổ sung thành phần $\\frac{1}{2\\sigma^2}$, tạo thành hệ số nhân $2\\sigma^2$.<br><br>
+            Sau khi giải xong tích phân Fubini, quay về $I^2 = 2\\sigma^2\\pi \\Rightarrow I = \\sigma\\sqrt{2\\pi}$.<br><br>
+            Vậy để thành hàm xác suất, phân phối chuẩn sẽ có dạng:
+            <div class="math-box">$$P(y^{(i)}) = \\frac{1}{\\sigma\\sqrt{2\\pi}} \\exp\\left\\{-\\frac{(y^{(i)} - \\mu)^2}{2\\sigma^2}\\right\\}$$</div>`
+        }
+    ];
+
+    let current = 0;
+
+    // --- CẤU HÌNH THREE.JS ---
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x030308, 0.02);
+    
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    const visualContainer = document.getElementById('webgl-container');
+    camera.aspect = visualContainer.clientWidth / visualContainer.clientHeight;
+    camera.updateProjectionMatrix();
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(visualContainer.clientWidth, visualContainer.clientHeight);
+    document.getElementById('webgl-container').appendChild(renderer.domElement);
+
+    // Xử lý Hậu kỳ (Bloom Pass)
+    const renderScene = new THREE.RenderPass(scene, camera);
+    const bloomPass = new THREE.UnrealBloomPass(new THREE.Vector2(visualContainer.clientWidth, visualContainer.clientHeight), 0.8, 0.3, 0.9);
+    bloomPass.threshold = 0.22;
+    bloomPass.strength = 0.55;
+    bloomPass.radius = 0.25;
+    
+    const composer = new THREE.EffectComposer(renderer);
+    composer.addPass(renderScene);
+    composer.addPass(bloomPass);
+
+    const visualGroup = new THREE.Group();
+    // Dời cụm 3D sang bên phải một chút để tránh bị Bảng Panel đè lên
+    visualGroup.position.set(4, 0, 0); 
+    scene.add(visualGroup);
+
+    // 1. Đồ thị 1D Line (không dùng lưới nền để biểu đồ thoáng, dễ đọc)
+    const VIS_SIGMA = 2;
+    const NORMALIZE = 1 / (VIS_SIGMA * Math.sqrt(2 * Math.PI));
+    const linePts = [];
+    for(let i=-20; i<=20; i+=0.1) linePts.push(new THREE.Vector3(i, 15*Math.exp(-(i*i)/(2*VIS_SIGMA*VIS_SIGMA)), 0));
+    const curve1D = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(linePts),
+        new THREE.LineBasicMaterial({ color: 0x64c9c0, linewidth: 2 })
+    );
+    curve1D.position.z = 0.4; // giữ đường cong rõ trên bề mặt các cột đặc
+    visualGroup.add(curve1D);
+
+    const areaShape = new THREE.Shape();
+    areaShape.moveTo(linePts[0].x, 0);
+    linePts.forEach(point => areaShape.lineTo(point.x, point.y));
+    areaShape.lineTo(linePts[linePts.length - 1].x, 0);
+    areaShape.closePath();
+    const area1D = new THREE.Mesh(
+        new THREE.ShapeGeometry(areaShape, 48),
+        new THREE.MeshBasicMaterial({ color: 0x176d69, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false, blending: THREE.NormalBlending })
+    );
+    area1D.position.z = -0.12;
+    visualGroup.add(area1D);
+
+    // Các cột histogram lấy chiều cao trực tiếp từ cùng hàm đã dùng để dựng đường cong.
+    const histogramBars = [];
+    const barMaterial = new THREE.MeshBasicMaterial({ color: 0x3b9186, transparent: true, opacity: 1, wireframe: false, depthWrite: true });
+    for (let x = -8; x <= 8; x += 1) {
+        const baseHeight = 15 * Math.exp(-(x * x) / (2 * VIS_SIGMA * VIS_SIGMA));
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(0.82, 1, 0.48), barMaterial);
+        bar.position.set(x, baseHeight / 2, 0.08);
+        bar.scale.y = baseHeight;
+        bar.userData.baseHeight = baseHeight;
+        histogramBars.push(bar);
+        visualGroup.add(bar);
+    }
+
+    // Mặt đáy Oxy: Three.js dùng mặt phẳng XZ làm mặt phẳng ngang, trục Y là độ cao.
+    const basePlane = new THREE.Mesh(
+        new THREE.PlaneGeometry(34, 34),
+        new THREE.MeshBasicMaterial({ color: 0x294541, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false })
+    );
+    basePlane.rotation.x = -Math.PI / 2;
+    basePlane.position.y = -0.08;
+    visualGroup.add(basePlane);
+
+    const makeAxis = (points, color) => new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(points),
+        new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0 })
+    );
+    const axisX = makeAxis([new THREE.Vector3(-17, 0.01, 0), new THREE.Vector3(17, 0.01, 0)], 0x6db9ad);
+    const axisY = makeAxis([new THREE.Vector3(0, 0.01, -17), new THREE.Vector3(0, 0.01, 17)], 0xc0ad78);
+    const axisZ = makeAxis([new THREE.Vector3(0, 0.01, 0), new THREE.Vector3(0, 17, 0)], 0xb9a8e8);
+    visualGroup.add(axisX, axisY, axisZ);
+
+    // Hai profile Gaussian vuông góc, lần lượt nằm trên các mặt phẳng Oxz và Oyz.
+    const profileOxz = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(linePts.map(point => new THREE.Vector3(point.x, point.y, 0.06))),
+        new THREE.LineBasicMaterial({ color: 0x83cfc0, transparent: true, opacity: 0 })
+    );
+    const profileOyz = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(linePts.map(point => new THREE.Vector3(0.06, point.y, point.x))),
+        new THREE.LineBasicMaterial({ color: 0xd1bd87, transparent: true, opacity: 0 })
+    );
+    visualGroup.add(profileOxz, profileOyz);
+
+    // Bề mặt tròn xoay được dựng theo từng lát góc, nên có thể quét ra và thu ngược lại.
+    const ANGULAR_SEGMENTS = 72;
+    const RADIAL_SEGMENTS = 48;
+    const domeGeo = new THREE.BufferGeometry();
+    const domeVertices = [];
+    const domeIndices = [];
+    for (let a = 0; a <= ANGULAR_SEGMENTS; a++) {
+        const phi = (a / ANGULAR_SEGMENTS) * Math.PI * 2;
+        for (let r = 0; r <= RADIAL_SEGMENTS; r++) {
+            const radius = (r / RADIAL_SEGMENTS) * 16;
+            const height = 15 * Math.exp(-(radius * radius) / 20);
+            domeVertices.push(radius * Math.cos(phi), height, radius * Math.sin(phi));
+        }
+    }
+    for (let a = 0; a < ANGULAR_SEGMENTS; a++) {
+        for (let r = 0; r < RADIAL_SEGMENTS; r++) {
+            const a0 = a * (RADIAL_SEGMENTS + 1) + r;
+            const a1 = (a + 1) * (RADIAL_SEGMENTS + 1) + r;
+            domeIndices.push(a0, a1, a1 + 1, a0, a1 + 1, a0 + 1);
+        }
+    }
+    domeGeo.setAttribute('position', new THREE.Float32BufferAttribute(domeVertices, 3));
+    domeGeo.setIndex(domeIndices);
+    domeGeo.setDrawRange(0, 0);
+    domeGeo.computeVertexNormals();
+    const dome = new THREE.Mesh(
+        domeGeo,
+        new THREE.MeshBasicMaterial({ color: 0x62d2c7, wireframe: true, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 })
+    );
+    dome.renderOrder = 2;
+    visualGroup.add(dome);
+
+    // Lưới đáy chỉ xuất hiện ở phần tích phân 3D; cột histogram 1D vẫn để mặt trơn.
+    const floorGrid = new THREE.GridHelper(60, 60, 0x00ffff, 0x002222);
+    floorGrid.position.y = -0.09;
+    const floorGridMaterials = Array.isArray(floorGrid.material) ? floorGrid.material : [floorGrid.material];
+    floorGridMaterials.forEach(material => { material.transparent = true; material.opacity = 0; });
+    visualGroup.add(floorGrid);
+
+    // 4. Mặt phẳng Tọa độ cực (Xanh lục giảm chói)
+    const polarBase = new THREE.Mesh(
+        new THREE.CircleGeometry(16, 64),
+        new THREE.MeshBasicMaterial({ color: 0x2ecc71, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, side: THREE.DoubleSide })
+    );
+    polarBase.rotation.x = -Math.PI/2;
+    polarBase.position.y = 0.05;
+    
+    // Vòng r đồng tâm
+    const rings = [];
+    for(let r=2; r<=16; r+=2) {
+        let ring = new THREE.LineLoop(
+            new THREE.BufferGeometry().setFromPoints(new THREE.Path().absarc(0,0,r,0,Math.PI*2).getPoints(64)),
+            new THREE.LineBasicMaterial({ color: 0x9eb5ae, transparent: true, opacity: 0 })
+        );
+        rings.push(ring);
+        polarBase.add(ring);
+    }
+    visualGroup.add(polarBase);
+
+    // --- QUẢN LÝ TRẠNG THÁI (STATE MANAGER) ---
+    const state = { cam: [4, 6, 35], cOp: 1, cScale: 1, areaOp: 0, profileOp: 0, baseOp: 0, axisOp: 0, gridOp: 0, dOp: 0, dSweep: 0, dRotation: 0, pOp: 0 };
+    
+    const targets = [
+        { cam: [4, 5, 35],   cOp: 1, cScale: NORMALIZE, dOp: 0, pOp: 0 }, // S1: mật độ chuẩn hóa
+        { cam: [4, 5, 30],   cOp: 1, cScale: 1, areaOp: 0.32, dOp: 0, pOp: 0 }, // S2: diện tích chưa chuẩn hóa
+        { cam: [4, 5, 30],   cOp: 1, cScale: NORMALIZE, areaOp: 0.32, dOp: 0, pOp: 0 }, // S3: co về diện tích 1
+        { cam: [14, 15, 30], cOp: 0, cScale: 1, areaOp: 0.22, profileOp: 0.95, baseOp: 0.12, axisOp: 0.9, gridOp: 0, dOp: 0, dSweep: 0, dRotation: 0, pOp: 0 },
+        { cam: [14, 15, 30], cOp: 0, cScale: 1, areaOp: 0, profileOp: 0, baseOp: 0.10, axisOp: 0.65, gridOp: 0.14, dOp: 0.42, dSweep: 1, dRotation: Math.PI * 2, pOp: 1 },
+        { cam: [4, 5, 35],   cOp: 1, cScale: 0.4, profileOp: 0, baseOp: 0, axisOp: 0, gridOp: 0, dOp: 0, dSweep: 1, dRotation: Math.PI * 2, pOp: 0 }
+    ];
+
+    function updateLabels() {
+        // Tắt hết
+        document.querySelectorAll('.gl-label').forEach(el => el.classList.remove('active'));
+        
+        // Bật theo ngữ cảnh
+        if(current >= 0 && current <= 2) {
+            document.querySelectorAll('.group-1').forEach(el => el.classList.add('active'));
+            const areaLabel = document.getElementById('lbl-xacsuat');
+            areaLabel.innerText = current === 2 ? "Diện tích sau chuẩn hóa = 1" : current === 1 ? "Diện tích chưa chuẩn hóa" : "Mật độ chuẩn";
+            areaLabel.style.color = current === 2 ? "#8fd7a8" : current === 1 ? "#d6b77b" : "#dbe7e5";
+            document.getElementById('lbl-formula').innerHTML = current === 1
+                ? '<div class="formula">\\(P_1(y)=e^{-u}\\)</div><div class="area-note">\\(\\int_{-\\infty}^{\\infty}P_1(y)\\,dy=\\sigma\\sqrt{2\\pi}\\ne 1\\)</div>'
+                : current === 2
+                    ? '<div class="formula">\\(P(y)=\\frac{1}{\\sigma\\sqrt{2\\pi}}e^{-u}\\)</div><div class="area-note">\\(\\int_{-\\infty}^{\\infty}P(y)\\,dy=1\\)</div>'
+                    : '';
+        }
+        if(current === 3 || current === 4) {
+            document.querySelectorAll('.group-2').forEach(el => el.classList.add('active'));
+            document.getElementById('lbl-2d-note').innerHTML = current === 3
+                ? 'Hai profile Gaussian: <b>f(x)</b> và <b>f(y)</b>'
+                : 'Khối chuông Gaussian 3D';
+        }
+        if(current === 4) {
+            document.querySelectorAll('.group-3').forEach(el => el.classList.add('active'));
+        }
+    }
+
+    const axisTags = [
+        { el: document.getElementById('tag-ox'), point: new THREE.Vector3(17, 0, 0) },
+        { el: document.getElementById('tag-oy'), point: new THREE.Vector3(0, 0, 17) },
+        { el: document.getElementById('tag-oz'), point: new THREE.Vector3(0, 17, 0) }
+    ];
+    function positionAxisTags() {
+        const visible = current === 3 || current === 4;
+        visualGroup.updateMatrixWorld();
+        camera.updateMatrixWorld();
+        axisTags.forEach(({ el, point }) => {
+            el.classList.toggle('active', visible);
+            if (!visible) return;
+            const projected = point.clone().applyMatrix4(visualGroup.matrixWorld).project(camera);
+            el.style.left = `${(projected.x * 0.5 + 0.5) * visualContainer.clientWidth}px`;
+            el.style.top = `${(-projected.y * 0.5 + 0.5) * visualContainer.clientHeight}px`;
+        });
+    }
+
+    function changeSlide(dir) {
+        current = Math.max(0, Math.min(slides.length-1, current + dir));
+        
+        // 1. Cập nhật Nội dung HTML
+        const wrapper = document.getElementById('slide-content-wrapper');
+        gsap.to(wrapper, { opacity: 0, duration: 0.2, onComplete: () => {
+            const formulaLabel = document.getElementById('lbl-formula');
+            if (window.MathJax?.typesetClear) MathJax.typesetClear([wrapper, formulaLabel]);
+            document.getElementById('title').innerText = slides[current].title;
+            document.getElementById('desc').innerHTML = slides[current].content;
+            document.getElementById('indicator').innerText = `${current+1} / 6`;
+            const typesetWhenReady = () => {
+                if (!window.MathJax?.typesetPromise) { window.setTimeout(typesetWhenReady, 50); return; }
+                MathJax.typesetPromise([wrapper, formulaLabel]).then(() => {
+                    wrapper.scrollTop = 0;
+                    gsap.to(wrapper, { opacity: 1, duration: 0.3 });
+                });
+            };
+            typesetWhenReady();
+        }});
+
+        document.getElementById('btn-prev').disabled = current === 0;
+        document.getElementById('btn-next').disabled = current === slides.length - 1;
+
+        updateLabels();
+
+        // 2. Chạy Animation 3D Camera và Opacity
+        let tgt = targets[current];
+        // Đáy chỉ bắt đầu nháy sau khi mặt chuông đã quét xong.
+        gsap.killTweensOf(state, "pOp");
+        gsap.set(state, { pOp: 0 });
+        gsap.to(camera.position, { x: tgt.cam[0], y: tgt.cam[1], z: tgt.cam[2], duration: 2.5, ease: "power2.inOut", overwrite: true });
+        
+        gsap.to(state, {
+            cOp: tgt.cOp, cScale: tgt.cScale, areaOp: tgt.areaOp || 0,
+            profileOp: tgt.profileOp || 0, baseOp: tgt.baseOp || 0, axisOp: tgt.axisOp || 0, gridOp: tgt.gridOp || 0,
+            dOp: tgt.dOp, dSweep: tgt.dSweep || 0, dRotation: tgt.dRotation || 0,
+            duration: 2.4, overwrite: true, ease: "power2.inOut",
+            onUpdate: () => {
+                curve1D.material.opacity = state.cOp;
+                curve1D.scale.y = state.cScale;
+                area1D.material.opacity = state.areaOp;
+                area1D.scale.y = state.cScale;
+                barMaterial.opacity = state.cOp;
+                histogramBars.forEach(bar => {
+                    bar.scale.y = bar.userData.baseHeight * state.cScale;
+                    bar.position.y = bar.userData.baseHeight * state.cScale / 2;
+                });
+                profileOxz.material.opacity = state.profileOp;
+                profileOyz.material.opacity = state.profileOp;
+                basePlane.material.opacity = state.baseOp;
+                axisX.material.opacity = state.axisOp;
+                axisY.material.opacity = state.axisOp;
+                axisZ.material.opacity = state.axisOp;
+                floorGridMaterials.forEach(material => { material.opacity = state.gridOp; });
+                dome.material.opacity = state.dOp;
+                dome.rotation.y = state.dRotation;
+                dome.geometry.setDrawRange(0, Math.floor(ANGULAR_SEGMENTS * state.dSweep) * RADIAL_SEGMENTS * 6);
+            },
+            onComplete: () => {
+                if (current === 4 && tgt.pOp) {
+                    gsap.to(state, { pOp: tgt.pOp, duration: 0.55, ease: "sine.inOut", overwrite: true });
+                }
+            }
+        });
+    }
+
+    // --- HỆ THỐNG RENDER & HIỆU ỨNG NHỊP THỞ (PULSE) ---
+    function animate() {
+        requestAnimationFrame(animate);
+        camera.lookAt(4, 5, 0); // Camera luôn nhìn vào trọng tâm khối
+        positionAxisTags();
+        
+        // KHÔNG CÒN QUAY TRÒN NỮA. Khối 3D hoàn toàn tĩnh để Labels trỏ đúng vị trí.
+
+        // Hiệu ứng Slow-motion Pulse cho đĩa cực ở Slide 5
+        if(state.pOp > 0) {
+            // Xung sáng chậm, dịu trên mặt đáy; chú thích được bố trí ở vùng phía trên.
+            polarBase.material.opacity = state.pOp * (0.15 + 0.1 * Math.sin(Date.now() * 0.0015));
+            
+            rings.forEach((ring, idx) => {
+                ring.material.opacity = state.pOp * (0.2 + 0.1 * Math.sin(Date.now() * 0.0015 + idx*0.5));
+            });
+        } else {
+            polarBase.material.opacity = 0;
+            rings.forEach(ring => ring.material.opacity = 0);
+        }
+
+        composer.render();
+    }
+    
+
+    const panelToggle = document.getElementById('panel-toggle');
+    panelToggle.addEventListener('click', () => {
+        const collapsed = document.body.classList.toggle('panel-collapsed');
+        panelToggle.textContent = collapsed ? '→' : '←';
+        panelToggle.setAttribute('aria-expanded', String(!collapsed));
+        panelToggle.setAttribute('aria-label', collapsed ? 'Mở lại bảng giải thích' : 'Cất bảng giải thích');
+        panelToggle.title = collapsed ? 'Mở lại bảng giải thích' : 'Cất bảng giải thích';
+        window.setTimeout(resizeVisual, 370);
+    });
+
+    function resizeVisual() {
+        camera.aspect = visualContainer.clientWidth / visualContainer.clientHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(visualContainer.clientWidth, visualContainer.clientHeight);
+        composer.setSize(visualContainer.clientWidth, visualContainer.clientHeight);
+    }
+
+    window.addEventListener('resize', resizeVisual);
+
+    window.onload = () => { 
+        camera.position.set(...targets[0].cam); 
+        changeSlide(0); 
+        animate(); 
+    };
+</script>
+</body>
+</html>
+
+
